@@ -220,12 +220,17 @@ TG_PROXY_URL=socks5://host.docker.internal:7890
 cp .env.example .env
 # 必改：ADMIN_PASSWORD、SECRET_KEY、SITE_BASE_URL=https://你的域名
 mkdir -p data
+sudo chown -R 1000:1000 data   # 容器以 uid 1000 运行，见下方说明
 docker compose up -d --build
 docker compose logs -f web
 ```
 
-镜像用多阶段构建，最终镜像是 alpine + 一个静态二进制；`data/` 是唯一的持久化目录
-（`novel.db`、WAL、TG 会话、批量导入日志都在里面）。
+容器以 **uid 1000** 运行，`data/` 是 bind mount，宿主机目录必须 `chown 1000:1000`。
+没做的话启动会直接退出，错误信息里会带上要执行的命令。
+
+镜像用 `scratch` 构建（只有静态二进制 + 模板/静态资源 + 时区/CA），
+`data/` 是唯一的持久化目录（`novel.db`、WAL、TG 会话、批量导入日志都在里面）。
+容器以 uid 1000 运行，不是 root。
 
 ### 裸机 systemd
 

@@ -139,7 +139,30 @@ func Load(root string) (*Config, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建数据目录 %s 失败：%w", cfg.DataDir, err)
 	}
+	if err := checkWritable(cfg.DataDir); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// checkWritable 启动时就确认数据目录可写。
+//
+// 容器里最常见的故障是 bind mount 的宿主目录归 root，而容器以非 root 运行：
+// 这时 SQLite 要到第一次写入才报 "attempt to write a readonly database"，
+// 或者干脆 "unable to open database file"，错误信息指向库里，根因却是目录权限。
+// 这里提前探一次，直接把该执行的 chown 命令写进错误里。
+func checkWritable(dir string) error {
+	probe, err := os.CreateTemp(dir, ".write-probe-*")
+	if err != nil {
+		return fmt.Errorf(
+			"数据目录 %s 不可写（当前 uid=%d）。容器里常见原因是挂载目录归 root 所有，"+
+				"在宿主机执行：sudo chown -R 1000:1000 %s。原始错误：%w",
+			dir, os.Getuid(), dir, err)
+	}
+	name := probe.Name()
+	probe.Close()
+	_ = os.Remove(name)
+	return nil
 }
 
 // SetTGProxy 运行期修改代理（后台设置页用），下次建模客户端时生效。

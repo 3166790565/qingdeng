@@ -10,21 +10,33 @@
 # 运行：见 docker-compose.prod.yml
 FROM scratch
 
-# 时区与 CA 证书；两者都从构建上下文拷，避免 depended on 基础镜像
+# 时区与 CA 证书；两者都从构建上下文拷，避免依赖基础镜像
 COPY deploy/rootfs/zoneinfo/ /usr/share/zoneinfo/
 COPY deploy/rootfs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /app
-COPY deploy/static-root/ /app/
-COPY build/qingdeng-linux /usr/local/bin/qingdeng
+# --chown 让程序文件归 uid 1000 所有；scratch 里没有 chown 命令，
+# 这是唯一能给文件设属主的方式。
+COPY --chown=1000:1000 deploy/static-root/ /app/
+COPY --chown=1000:1000 build/qingdeng-linux /usr/local/bin/qingdeng
+
+# 预建 /data 并设好属主。用构建上下文里的空文件占位，
+# 不引入任何基础镜像；挂载宿主机目录时以宿主机权限为准，
+# 那边要 chown 1000:1000（见 deploy/README.md）。
+COPY --chown=1000:1000 deploy/rootfs/data-keep /data/.keep
 
 ENV TZ=Asia/Shanghai \
     NOVEL_DATA_DIR=/data \
     NOVEL_DB_PATH=/data/novel.db \
     HOST=0.0.0.0 \
-    PORT=8000
+    PORT=8000 \
+    HOME=/tmp
 
 EXPOSE 8000
+
+# 用固定 uid 1000 跑：和多数 Linux 首个普通用户一致，
+# bind mount 的目录 chown 1000:1000 后就能直接写。
+USER 1000:1000
 
 # scratch 镜像没有 shell，也没有 wget/curl，所以 HEALTHCHECK 由编排层做
 # （docker-compose.prod.yml 里用 healthcheck + 宿主机 curl，或直接用 k8s probe）

@@ -21,6 +21,11 @@ rm -rf deploy/static-root
 mkdir -p deploy/static-root
 cp -r templates static legado schema.sql deploy/static-root/
 
+echo "==> 准备数据目录占位文件"
+mkdir -p deploy/rootfs
+# scratch 镜像里没法 mkdir，靠 COPY 一个空文件把 /data 建出来
+: > deploy/rootfs/data-keep
+
 echo "==> 准备 CA 证书"
 mkdir -p deploy/rootfs
 CA=""

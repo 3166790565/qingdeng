@@ -18,4 +18,5 @@ bulkimport.exe
 # 镜像构建时需要的本地产物由 CI / 发布脚本生成，不入库
 deploy/rootfs/zoneinfo/
 deploy/rootfs/ca-certificates.crt
+deploy/rootfs/data-keep
 deploy/static-root/
