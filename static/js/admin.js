@@ -286,6 +286,38 @@
       });
     }
 
+    // 代理连通性检测：测的是输入框里的值，不要求先保存
+    var proxyTestBtn = document.getElementById("tg-proxy-test");
+    if (proxyTestBtn) {
+      proxyTestBtn.addEventListener("click", function () {
+        var input = document.getElementById("tg-proxy");
+        var result = document.getElementById("tg-proxy-result");
+        var detail = document.getElementById("tg-proxy-detail");
+
+        proxyTestBtn.disabled = true;
+        result.textContent = "检测中…";
+        detail.classList.add("is-hidden");
+
+        post("/admin/telegram/api/proxy/test", { proxy_url: input.value || "" })
+          .then(function (data) {
+            result.textContent = data.message || (data.ok ? "连接正常" : "连接失败");
+            result.className = "field-hint " + (data.ok ? "is-ok-text" : "is-err-text");
+            document.getElementById("tg-proxy-used").textContent = data.proxy || "";
+            document.getElementById("tg-proxy-target").textContent = data.target || "";
+            document.getElementById("tg-proxy-ms").textContent =
+              data.dialMs != null ? data.dialMs + " ms" : "";
+            detail.classList.remove("is-hidden");
+          })
+          .catch(function (error) {
+            result.textContent = error.message;
+            result.className = "field-hint is-err-text";
+          })
+          .then(function () {
+            proxyTestBtn.disabled = false;
+          });
+      });
+    }
+
     var card = document.getElementById("progress-card");
     var bar = document.getElementById("progress-bar");
     var text = document.getElementById("progress-text");

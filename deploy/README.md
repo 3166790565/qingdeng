@@ -36,13 +36,11 @@ docker run -d --name qingdeng --restart unless-stopped \
 
 ## 连不上 TG：配置代理
 
-国内服务器直连 Telegram 会超时，需要一条出口。两种填法，**后台页面优先**：
+在**后台「TG 频道」页 → 出站代理**里填，保存即生效，不用重启。
+旁边有「测试连接」，会实际拨号到 Telegram 的 DC 地址，告诉你通不通、卡在哪。
 
-1. 后台「TG 频道」页 → 出站代理 → 填地址 → 保存（立即生效，不用重启）
-2. `.env` 里 `TG_PROXY_URL=...`（重启生效）
-
-支持 `socks5://` 与 `http://`，带认证写 `socks5://user:pass@host:port`。
-后台存的值会覆盖 `.env`，所以填错时在页面上清空即可回到直连。
+支持 `socks5://` 与 `http://`（Clash 的 Mixed 端口两者都认），留空直连。
+**代理配置不在 `.env` 里**，只存数据库——两个来源并存时最难排障。
 
 ### Docker 下的地址是最大的坑
 
@@ -56,24 +54,29 @@ docker run -d --name qingdeng --restart unless-stopped \
 | 代理只监听 127.0.0.1 且改不了 | 改用 `docker-compose.prod-host.yml`（host 网络），才能填 `socks5://127.0.0.1:7890` |
 
 `docker-compose.prod.yml` 已经加了 `extra_hosts: host.docker.internal:host-gateway`，
-Linux 上也能解析这个名字；Docker Desktop 自带。
+Linux 上也能解析这个名字。
 
-还有一点：如果代理自己也是容器，它必须监听 `0.0.0.0` 而不是 `127.0.0.1`，
-否则宿主机的转发也进不去。
+代理自己如果是容器，必须监听 `0.0.0.0` 而不是 `127.0.0.1`。
+Clash 系面板要打开「允许局域网」，否则只监听 `127.0.0.1`。
 
-验证代理是否通（不用等真实 TG 登录）：
+### 检测结果对照
 
-```bash
-# 在容器里测，地址与后台填的一致
-docker exec qingdeng /usr/local/bin/qingdeng -check-sqlite   # 先确认容器活着
-# 更直接的办法：后台 Telegram 页点「发送验证码」，失败信息会写明是哪一层不通
-```
+| 提示 | 该做什么 |
+| --- | --- |
+| 连接 Telegram 成功 | 链路通，去发验证码 |
+| 代理拒绝连接 | 确认代理在跑、端口对 |
+| 代理可能没放行 Telegram | 代理通了但出口到不了 TG，换节点 |
+| 解析不到 host.docker.internal | 用仓库里的 compose（含 extra_hosts） |
+| 代理握手失败 | 换 `http://` 或 `socks5://` 前缀 |
+| 连接超时：直连 Telegram 不通 | 还没配代理 |
 
 ### host 网络方案
 
 ```bash
-IMAGE=bxacc123/qingdeng:latest TG_PROXY_URL=socks5://127.0.0.1:7890   docker compose -f docker-compose.prod-host.yml up -d
+IMAGE=bxacc123/qingdeng:latest   docker compose -f docker-compose.prod-host.yml up -d
 ```
+
+然后在后台把代理填成 `socks5://127.0.0.1:7890`。
 
 代价是端口映射失效、直接占宿主机 8000，且与宿主其它进程共享网络命名空间。
 

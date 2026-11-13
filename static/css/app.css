@@ -647,3 +647,7 @@ textarea.mono { font-family: var(--mono); font-size: 13px; }
   .catalog { grid-template-columns: 1fr; }
   .reader-bar-right { width: 100%; justify-content: space-between; }
 }
+
+/* 代理连通性检测的即时反馈：与 field-hint 同级，只换颜色 */
+.is-ok-text { color: var(--accent); }
+.is-err-text { color: var(--danger); }

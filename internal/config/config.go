@@ -40,8 +40,8 @@ type Config struct {
 
 	TGAPIID   int
 	TGAPIHash string
-	// TGProxyURL 出站代理，形如 socks5://127.0.0.1:7890 或 http://127.0.0.1:7890。
-	// 留空直连。国内服务器连不上 Telegram 时必填。
+	// TGProxyURL 仅作默认值保留（当前不读环境变量，代理以数据库为准）。
+	// 保留字段是为了 ProxyConfig 组装时的零值语义清晰。
 	TGProxyURL     string
 	TGProxyTimeout time.Duration
 
@@ -124,7 +124,8 @@ func Load(root string) (*Config, error) {
 
 	cfg.TGAPIID, _ = strconv.Atoi(strings.TrimSpace(os.Getenv("TG_API_ID")))
 	cfg.TGAPIHash = strings.TrimSpace(os.Getenv("TG_API_HASH"))
-	cfg.TGProxyURL = strings.TrimSpace(os.Getenv("TG_PROXY_URL"))
+	// 代理地址不读环境变量：它由后台页面管理，唯一来源是数据库。
+	// 只保留超时这项环境级配置（改它需要重启，属于运维参数）。
 	if seconds, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TG_PROXY_TIMEOUT"))); err == nil && seconds > 0 {
 		cfg.TGProxyTimeout = time.Duration(seconds) * time.Second
 	} else {

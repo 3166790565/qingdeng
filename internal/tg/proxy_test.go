@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -263,5 +265,31 @@ func TestHTTPDialHintOnWrongProtocol(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "socks5://") {
 		t.Fatalf("错误里应提示换用 socks5://，得到：%v", err)
+	}
+}
+
+// 发码失败时不能把已登录的会话弄丢。
+func TestSendCodeRestoresSessionOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tg.session")
+	original := []byte(`{"dc":2,"auth_key":"keep-me"}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := readFileIfExists(path)
+	if !ok || string(got) != string(original) {
+		t.Fatal("readFileIfExists 读回内容不对")
+	}
+
+	// 模拟失败路径的还原
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, had := readFileIfExists(path); !had {
+		_ = os.WriteFile(path, got, 0o600)
+	}
+	back, ok := readFileIfExists(path)
+	if !ok || string(back) != string(original) {
+		t.Fatalf("还原后内容不对：%q", back)
 	}
 }

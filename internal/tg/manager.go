@@ -301,19 +301,27 @@ func (m *Manager) Shutdown() {
 
 // SendCode 第一步：输手机号，发验证码。
 func (m *Manager) SendCode(ctx context.Context, phone string) error {
-	number := strings.ReplaceAll(strings.TrimSpace(phone), " ", "")
-	if !regexp.MustCompile(`^\+?\d{5,15}$`).MatchString(number) {
-		return errors.New("手机号格式不对，要带国家区号，比如 +8613800138000")
-	}
-	if !strings.HasPrefix(number, "+") {
-		number = "+" + number
+	number, err := normalizePhone(phone)
+	if err != nil {
+		return err
 	}
 
-	// 每次发码都用新的空会话，避免上一次半截状态干扰
+	// 发码要用干净的匿名会话，避免上一次登录的半截状态（比如待输的 code hash）干扰。
+	// 但不能直接删当前会话文件：已登录用户误点「发送验证码」时，
+	// 万一发码失败就被登出了。这里先把旧会话备份到内存，
+	// 失败时还原，成功才真正丢弃。
 	if err := os.MkdirAll(filepath.Dir(m.sessionPath), 0o755); err != nil {
 		return err
 	}
-	_ = os.Remove(m.sessionPath)
+	previous, hadSession := readFileIfExists(m.sessionPath)
+	if err := os.Remove(m.sessionPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("重置会话文件失败：%w", err)
+	}
+	restore := func() {
+		if hadSession {
+			_ = os.WriteFile(m.sessionPath, previous, 0o600)
+		}
+	}
 
 	if err := m.startClientAnon(ctx); err != nil {
 		return err
@@ -329,6 +337,7 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 	sent, err := client.Auth().SendCode(ctx, number, auth.SendCodeOptions{})
 	if err != nil {
 		m.teardownClient()
+		restore() // 发码失败就把原会话放回去，别把人踢下线
 		return fmt.Errorf("发送验证码失败：%s", friendly(err))
 	}
 	codeHash := ""
@@ -342,6 +351,7 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 	}
 	if codeHash == "" {
 		m.teardownClient()
+		restore()
 		return errors.New("发送验证码失败：服务端未返回 code hash")
 	}
 
@@ -503,21 +513,34 @@ func (m *Manager) Logout(ctx context.Context) error {
 
 // proxyURL 返回当前生效的代理地址。
 //
-// 后台设置页存的值优先于 .env：填错代理时不用重启服务改配置，
-// 在页面上清空就能立刻回到直连。库里没有记录时用环境变量。
+// 唯一来源是数据库（后台页面）。刻意不读环境变量：代理是运行期可改的状态，
+// 两个来源并存时"改了页面没生效/改了 .env 没生效"这类问题很难排。
+// 库里没有记录等同于直连。
 func (m *Manager) proxyURL() string {
 	value, err := m.db.GetSetting(context.Background(), "tg_proxy_url", "")
-	if err == nil && value != "" {
-		if value == "-" { // 页面上的“直连”用单个减号表示，避免与“没设置”混淆
-			return ""
-		}
-		return value
+	if err != nil || value == "-" {
+		return ""
 	}
-	return m.cfg.TGProxyURL
+	return value
 }
 
 // ProxyURL 给后台页面显示用。
 func (m *Manager) ProxyURL() string { return m.proxyURL() }
+
+// ProxyConfig 返回当前生效的代理配置，供连通性检测等使用。
+func (m *Manager) ProxyConfig() ProxyConfig {
+	return ProxyConfig{URL: m.proxyURL(), Timeout: m.cfg.TGProxyTimeout}
+}
+
+// ProbeProxy 用当前配置（或传入的候选地址）测一次到 Telegram 的连通性。
+// candidate 非空时测候选值而不改存储，方便页面上"先测再存"。
+func (m *Manager) ProbeProxy(ctx context.Context, candidate string) ProbeResult {
+	cfg := m.ProxyConfig()
+	if strings.TrimSpace(candidate) != "" {
+		cfg.URL = strings.TrimSpace(candidate)
+	}
+	return cfg.Probe(ctx)
+}
 
 // SetProxyURL 保存代理设置，并断开当前客户端让下次重建时用新配置。
 func (m *Manager) SetProxyURL(ctx context.Context, rawURL string) error {
@@ -532,6 +555,62 @@ func (m *Manager) SetProxyURL(ctx context.Context, rawURL string) error {
 	// 代理只影响建连，断掉客户端后下一次操作会自动重建
 	m.teardownClient()
 	return nil
+}
+
+// readFileIfExists 读文件，不存在时返回 nil,false。
+func readFileIfExists(path string) ([]byte, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// normalizePhone 把各种写法收敛成 Telegram 要的 E.164 形态（+国家码号码）。
+//
+// 接受国际号码的常见书写：前导空格、国际区号与号码之间的空格、
+// 连字符、括号包裹的区号，例如 "+1 (415) 555-2671"。
+// Telegram 只吃纯数字加前导 +，所以这里先把装饰字符全部去掉。
+//
+// 校验只做最基本的形态检查：E.164 号码总长不超过 15 位数字，
+// 且必须能解析出国家码。具体号码是否有效交给 Telegram 判定——
+// 本地维护一份国家码表既不完整，也挡不住新号段。
+func normalizePhone(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", errors.New("请填手机号，要带国家区号，比如 +6598004075")
+	}
+	// 去掉所有非数字、非加号的字符：空格、连字符、括号、点等
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '+':
+			if b.Len() > 0 {
+				return "", errors.New("手机号里只能有一个 +，且必须在最前面")
+			}
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '(' || r == ')' || r == '.' || r == ' ':
+			continue
+		default:
+			return "", fmt.Errorf("手机号里有无法识别的字符 %q。要带国家区号的完整号码，比如 +6598004075、+14155552671", string(r))
+		}
+	}
+	number := b.String()
+
+	if !strings.HasPrefix(number, "+") {
+		// 没写 + 的按“已带国家码”处理，Telegram 见到裸号码也会当成带码
+		number = "+" + number
+	}
+	digits := strings.TrimPrefix(number, "+")
+	if len(digits) < 5 || len(digits) > 15 {
+		return "", errors.New("手机号位数不对：带国家区号的完整号码应是 5–15 位数字，比如 +6598004075")
+	}
+	if digits[0] == '0' {
+		return "", errors.New("号码不能以 0 开头：0 是国内长途前缀，国际格式要去掉。比如新加坡号码 98004075 要写成 +6598004075")
+	}
+	return number, nil
 }
 
 // ---------------------------------------------------------------- 频道管理
@@ -952,6 +1031,33 @@ func (m *Manager) autoTick() {
 
 // ---------------------------------------------------------------- 杂项
 
+// isDialError 判断是否为建连层失败（DNS、拒绝连接、路由不通等）。
+// 这类错误与账号、号码无关，文案里要避免误导用户去改号码。
+func isDialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	needles := []string{
+		"connection refused",
+		"no such host",
+		"network is unreachable",
+		"i/o timeout",
+		"dial tcp",
+		"proxyconnect",
+		"connection reset",
+		"tls handshake",
+		"eof",
+		"no route to host",
+	}
+	for _, n := range needles {
+		if strings.Contains(msg, n) {
+			return true
+		}
+	}
+	return false
+}
+
 func isAuthError(err error) bool {
 	return tgerr.IsCode(err, 401) || tgerr.Is(err, "AUTH_KEY_UNREGISTERED")
 }
@@ -965,20 +1071,34 @@ func friendly(err error) string {
 		return fmt.Sprintf("触发限流，需等 %d 秒", int(wait.Seconds()))
 	}
 	msg := err.Error()
-	replacements := map[string]string{
-		"PHONE_NUMBER_INVALID":  "手机号格式不对",
-		"PHONE_CODE_INVALID":    "验证码不对",
-		"PHONE_CODE_EXPIRED":    "验证码已过期",
-		"PASSWORD_HASH_INVALID": "云密码不对",
+	// 这些码是“请求确实到了 Telegram、被它拒绝”，与本地格式无关，
+	// 所以文案要说清是 TG 侧判定，并保留原始错误码方便查证。
+	serverRejects := map[string]string{
+		"PHONE_NUMBER_INVALID":  "Telegram 不接受这个号码（PHONE_NUMBER_INVALID）。号码格式在本地已通过，请检查国家码与号码是否属于同一国家，例如新加坡号码应为 +6598004075",
+		"PHONE_NUMBER_BANNED":   "这个号码已被 Telegram 封禁（PHONE_NUMBER_BANNED）",
+		"PHONE_NUMBER_OCCUPIED": "这个号码已被占用（PHONE_NUMBER_OCCUPIED）",
+		"PHONE_CODE_INVALID":    "验证码不对（PHONE_CODE_INVALID）",
+		"PHONE_CODE_EXPIRED":    "验证码已过期（PHONE_CODE_EXPIRED）",
+		"PASSWORD_HASH_INVALID": "云密码不对（PASSWORD_HASH_INVALID）",
 		"USERNAME_NOT_OCCUPIED": "用户名不存在",
 		"USERNAME_INVALID":      "用户名不可用",
 		"AUTH_KEY_UNREGISTERED": "TG 会话已失效，请重新登录",
-		"TIMEOUT":               "连接 Telegram 超时",
+		"AUTH_RESTART":          "TG 要求重新开始登录流程，请刷新页面重试",
 	}
-	for code, text := range replacements {
+	for code, text := range serverRejects {
 		if strings.Contains(msg, code) {
 			return text
 		}
+	}
+
+	// 连接层失败：这类才是“根本没到 Telegram”，与号码无关。
+	// 国内机器最常见的就是没配代理或代理不通。
+	if isDialError(err) {
+		return "连不上 Telegram（不是号码问题）：" + msg +
+			"。国内服务器需要在「出站代理」里配置代理，Docker 部署要写 host.docker.internal 而不是 127.0.0.1"
+	}
+	if strings.Contains(msg, "TIMEOUT") || strings.Contains(msg, "timeout") {
+		return "连接 Telegram 超时（不是号码问题）。检查服务器出站网络与代理配置：" + msg
 	}
 	return msg
 }

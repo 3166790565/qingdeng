@@ -228,3 +228,83 @@ func (p ProxyConfig) applyTo(opts telegram.Options) (telegram.Options, error) {
 	}
 	return opts, nil
 }
+
+// ProbeResult 代理连通性检测结果。
+type ProbeResult struct {
+	OK      bool          `json:"ok"`
+	Message string        `json:"message"`
+	Proxy   string        `json:"proxy"`  // 实际使用的代理（空表示直连）
+	Target  string        `json:"target"` // 用来检测的目标
+	DialMs  int64         `json:"dialMs"` // 建连耗时
+	Elapsed time.Duration `json:"-"`
+}
+
+// TG 的入口 DC 地址，用来测“能不能到 Telegram”而不只是“代理端口开没开”。
+// 149.154.167.51 是 DC2 生产地址，长期没变。
+const probeTarget = "149.154.167.51:443"
+
+// Probe 检测经由当前代理能否建立到 Telegram 的 TCP 连接。
+//
+// 只做到 TCP 握手，不发起 MTProto 握手：能连上就说明网络链路通，
+// 账密、session 之类的问题留给后续登录流程报。
+// 这样检测结果对“代理配得对不对”是准确的，不会因为别的错误混淆。
+func (p ProxyConfig) Probe(ctx context.Context) ProbeResult {
+	target := probeTarget
+	result := ProbeResult{Proxy: p.URL, Target: target}
+
+	timeout := p.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	dial, err := p.Dial("tcp")
+	if err != nil {
+		result.Message = "代理配置有误：" + err.Error()
+		return result
+	}
+	start := time.Now()
+	conn, err := dial(ctx, target)
+	result.DialMs = time.Since(start).Milliseconds()
+	if err != nil {
+		result.Message = describeDialFailure(err, p.URL)
+		return result
+	}
+	conn.Close()
+	result.OK = true
+	result.Message = "连接 Telegram 成功"
+	return result
+}
+
+// describeDialFailure 把底层错误翻译成能直接照做的提示。
+func describeDialFailure(err error, proxyURL string) string {
+	msg := strings.ToLower(err.Error())
+	suffix := ""
+	if proxyURL == "" {
+		suffix = "（当前为直连，若在国内服务器请先配置代理）"
+	}
+
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		if proxyURL == "" {
+			return "连接被拒绝：目标端口不可达" + suffix
+		}
+		return "代理拒绝连接：确认代理进程在跑、端口对得上" + suffix
+	case strings.Contains(msg, "no such host"):
+		if strings.Contains(proxyURL, "host.docker.internal") {
+			return "解析不到 host.docker.internal：Linux 上需要 compose 的 extra_hosts 配置" + suffix
+		}
+		return "解析不到代理主机名：检查拼写与 DNS" + suffix
+	case strings.Contains(msg, "i/o timeout"), strings.Contains(msg, "timeout"):
+		if proxyURL == "" {
+			return "连接超时：直连 Telegram 不通" + suffix
+		}
+		return "连接超时：代理可能没放行 Telegram，或代理本身不可用" + suffix
+	case strings.Contains(msg, "no route to host"), strings.Contains(msg, "network is unreachable"):
+		return "网络不可达：服务器没有到 Telegram 的出路" + suffix
+	case strings.Contains(msg, "proxyconnect"), strings.Contains(msg, "connect"):
+		return "代理握手失败：确认协议前缀（socks5:// / http://）与代理类型一致。原始错误：" + err.Error()
+	}
+	return err.Error()
+}

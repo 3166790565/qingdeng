@@ -54,8 +54,13 @@
   {{ else }}
   <div class="field">
     <label for="tg-phone">手机号</label>
-    <input id="tg-phone" type="tel" placeholder="+8613800138000">
-    <p class="field-hint">要带国家区号。登录的是你自己的 TG 账号，只用来读频道消息。</p>
+    <input id="tg-phone" type="tel" placeholder="+6598004075" autocomplete="tel">
+    <p class="field-hint">
+      要带国家区号，国际号码直接填完整形式即可：<code>+6598004075</code>（新加坡）、
+      <code>+8613800138000</code>（中国）、<code>+14155552671</code>（美国）。
+      空格、括号、连字符都能识别，比如 <code>+1 (415) 555-2671</code>。
+    </p>
+    <p class="field-hint">登录的是你自己的 TG 账号，只用来读频道消息。</p>
   </div>
   <div class="form-actions">
     <button id="tg-send-btn" class="btn btn-primary" type="button">发送验证码</button>
@@ -117,15 +122,19 @@
 </section>
 
 <form class="card form" method="post" action="/admin/telegram/proxy">
-  <div class="section-head"><h2>出站代理</h2></div>
+  <div class="section-head">
+    <h2>出站代理</h2>
+    <span class="tag tag-plain">当前：{{ .ProxyDisplay }}</span>
+  </div>
   <div class="field">
     <label for="tg-proxy">代理地址</label>
     <input id="tg-proxy" name="proxy_url" type="text"
            value="{{ .ProxyURL }}"
-           placeholder="socks5://127.0.0.1:7890 或 http://127.0.0.1:7890">
+           placeholder="socks5://host.docker.internal:7890">
     <p class="field-hint">
-      服务器连不上 Telegram 时填这里。支持 <code>socks5://</code> 与 <code>http://</code>；
-      带账号密码就写成 <code>socks5://user:pass@127.0.0.1:7890</code>。留空表示直连。
+      支持 <code>socks5://</code> 与 <code>http://</code>（Clash 的 Mixed 端口两者都认），
+      带账号密码写 <code>socks5://user:pass@host:port</code>，不写协议前缀时按 <code>http://</code> 处理。
+      留空表示直连。
     </p>
     <p class="field-hint">
       <strong>Docker 部署注意</strong>：容器里的 <code>127.0.0.1</code> 是容器自己，不是宿主机。
@@ -136,6 +145,15 @@
   </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">保存代理</button>
+    <button id="tg-proxy-test" class="btn btn-ghost" type="button">测试连接</button>
+    <span id="tg-proxy-result" class="field-hint"></span>
+  </div>
+  <div id="tg-proxy-detail" class="is-hidden">
+    <dl class="kv">
+      <dt>实际使用</dt><dd id="tg-proxy-used"></dd>
+      <dt>检测目标</dt><dd id="tg-proxy-target"></dd>
+      <dt>建连耗时</dt><dd id="tg-proxy-ms"></dd>
+    </dl>
   </div>
 </form>
 

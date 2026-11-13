@@ -40,6 +40,7 @@ func (a *App) tgContext(r *http.Request) map[string]any {
 		"SyncInterval": interval,
 		"SyncBusy":     a.TG.SyncBusy(),
 		"ProxyURL":     a.TG.ProxyURL(),
+		"ProxyDisplay": displayProxy(a.TG.ProxyURL()),
 		"Jobs":         jobs,
 		"Flash":        r.URL.Query().Get("flash"),
 		"Kind":         r.URL.Query().Get("kind"),
@@ -165,6 +166,28 @@ func (a *App) tgProxySave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flashRedirect(w, r, "/admin/telegram", "代理已保存："+rawURL, true)
+}
+
+// tgProxyTest 检测代理连通性。candidate 为空时测当前已保存的配置。
+func (a *App) tgProxyTest(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	candidate := strings.TrimSpace(r.FormValue("proxy_url"))
+	result := a.TG.ProbeProxy(r.Context(), candidate)
+	JSON(w, 200, map[string]any{
+		"ok":      result.OK,
+		"message": result.Message,
+		"proxy":   displayProxy(result.Proxy),
+		"target":  result.Target,
+		"dialMs":  result.DialMs,
+	})
+}
+
+// displayProxy 空代理在界面上显示成"直连"。
+func displayProxy(raw string) string {
+	if raw == "" {
+		return "直连"
+	}
+	return raw
 }
 
 func (a *App) tgSettingsSave(w http.ResponseWriter, r *http.Request) {

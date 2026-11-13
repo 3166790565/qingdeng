@@ -64,17 +64,19 @@ func TestTGProxyDefault(t *testing.T) {
 	}
 }
 
-func TestTGProxyFromEnv(t *testing.T) {
+// 代理地址刻意不从环境变量读：它在后台页面管理，唯一来源是数据库。
+// 设了 TG_PROXY_URL 也不该生效，防止出现两个来源。
+func TestTGProxyNotReadFromEnv(t *testing.T) {
 	t.Setenv("TG_PROXY_URL", "socks5://127.0.0.1:7890")
 	t.Setenv("TG_PROXY_TIMEOUT", "10")
 	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TGProxyURL != "socks5://127.0.0.1:7890" {
-		t.Fatalf("代理地址没读到：%q", cfg.TGProxyURL)
+	if cfg.TGProxyURL != "" {
+		t.Fatalf("代理地址不该从环境变量读取，得到 %q", cfg.TGProxyURL)
 	}
 	if cfg.TGProxyTimeout.Seconds() != 10 {
-		t.Fatalf("超时没读到：%v", cfg.TGProxyTimeout)
+		t.Fatalf("超时仍应从环境变量读取：%v", cfg.TGProxyTimeout)
 	}
 }
