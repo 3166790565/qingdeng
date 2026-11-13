@@ -1,0 +1,31 @@
+# 云上部署用镜像：预编译的静态二进制 + 预置静态资源。
+#
+# 这个 Dockerfile 假设二进制已经在本地交叉编译好（CGO_ENABLED=0），
+# 构建时不需要 golang 镜像、不需要拉任何基础镜像里没有的东西，
+# 因此在不方便访问 Docker Hub 的机器上也能构建出可推送的镜像。
+#
+# 构建：
+#   sh deploy/prepare.sh            # 交叉编译 + 准备资源/证书/时区
+#   docker build -f Dockerfile.runtime -t <你的仓库>/qingdeng:<tag> .
+# 运行：见 docker-compose.prod.yml
+FROM scratch
+
+# 时区与 CA 证书；两者都从构建上下文拷，避免 depended on 基础镜像
+COPY deploy/rootfs/zoneinfo/ /usr/share/zoneinfo/
+COPY deploy/rootfs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+WORKDIR /app
+COPY deploy/static-root/ /app/
+COPY build/qingdeng-linux /usr/local/bin/qingdeng
+
+ENV TZ=Asia/Shanghai \
+    NOVEL_DATA_DIR=/data \
+    NOVEL_DB_PATH=/data/novel.db \
+    HOST=0.0.0.0 \
+    PORT=8000
+
+EXPOSE 8000
+
+# scratch 镜像没有 shell，也没有 wget/curl，所以 HEALTHCHECK 由编排层做
+# （docker-compose.prod.yml 里用 healthcheck + 宿主机 curl，或直接用 k8s probe）
+ENTRYPOINT ["/usr/local/bin/qingdeng", "-root", "/app"]

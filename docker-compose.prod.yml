@@ -1,0 +1,36 @@
+name: qingdeng
+
+services:
+  web:
+    image: ${IMAGE:?请设置 IMAGE，例如 your-dockerhub-user/qingdeng:2026.11.14}
+    container_name: qingdeng
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      NOVEL_DATA_DIR: /data
+      NOVEL_DB_PATH: /data/${DB_FILE:-novel.db}
+      TZ: Asia/Shanghai
+
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-8000}:8000"
+
+    volumes:
+      # 唯一的持久化目录：novel.db、WAL、TG 会话、批量导入日志
+      - ./data:/data
+
+    healthcheck:
+      # scratch 镜像里没有 shell 与 curl，探针从宿主机打
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

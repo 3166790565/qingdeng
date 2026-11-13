@@ -1,0 +1,58 @@
+{{ define "bookCard" }}
+<article class="book-card">
+  <a class="book-cover" href="/book/{{ .ID }}" aria-hidden="true" tabindex="-1"
+     {{ if .CoverURL }}style="background-image:url('{{ .CoverURL }}');background-size:cover;background-position:center"
+     {{ else }}style="background:{{ coverGradient .Title }}"{{ end }}>
+    {{ if not .CoverURL }}<span class="cover-initial">{{ coverInitial .Title }}</span>{{ end }}
+  </a>
+  <h3 class="book-title"><a href="/book/{{ .ID }}">{{ .Title }}</a></h3>
+  <p class="book-meta">
+    <span class="book-author">{{ .Author }}</span>
+    <span class="dot">·</span>
+    <span>{{ wordCount .WordCount }}</span>
+  </p>
+  <p class="book-meta-2">
+    <span class="tag tag-{{ .SplitMode }}">{{ modeLabel .SplitMode }}</span>
+    {{ if gt .ChapterCount 1 }}<span>{{ .ChapterCount }} 章</span>{{ else }}<span>单章</span>{{ end }}
+  </p>
+</article>
+{{ end }}
+
+
+{{ define "pager" }}
+{{ if gt .Page.Pages 1 }}
+<nav class="pager" aria-label="分页">
+  {{ if .Page.HasPrev }}
+    <a class="pager-step" href="{{ .Base }}?page={{ .Page.Prev }}{{ .Extra }}" rel="prev">上一页</a>
+  {{ else }}
+    <span class="pager-step is-off">上一页</span>
+  {{ end }}
+
+  {{ $window := .Page.Window 2 }}
+  {{ if gt (index $window 0) 1 }}
+    <a href="{{ .Base }}?page=1{{ .Extra }}">1</a>
+    {{ if gt (index $window 0) 2 }}<span class="pager-gap">…</span>{{ end }}
+  {{ end }}
+
+  {{ range $window }}
+    {{ if eq . $.Page.Number }}
+      <span class="pager-now" aria-current="page">{{ . }}</span>
+    {{ else }}
+      <a href="{{ $.Base }}?page={{ . }}{{ $.Extra }}">{{ . }}</a>
+    {{ end }}
+  {{ end }}
+
+  {{ $last := index $window (sub1 (len $window)) }}
+  {{ if lt $last $.Page.Pages }}
+    {{ if lt $last (sub1 $.Page.Pages) }}<span class="pager-gap">…</span>{{ end }}
+    <a href="{{ $.Base }}?page={{ $.Page.Pages }}{{ $.Extra }}">{{ $.Page.Pages }}</a>
+  {{ end }}
+
+  {{ if .Page.HasNext }}
+    <a class="pager-step" href="{{ .Base }}?page={{ .Page.Next }}{{ .Extra }}" rel="next">下一页</a>
+  {{ else }}
+    <span class="pager-step is-off">下一页</span>
+  {{ end }}
+</nav>
+{{ end }}
+{{ end }}

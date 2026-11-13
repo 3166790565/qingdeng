@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ block "title" . }}后台 · {{ .SiteName }}{{ end }}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="admin-page">
+<a class="skip-link" href="#main">跳到正文</a>
+
+<header class="admin-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="/admin"><span class="brand-name">{{ .SiteName }}</span><span class="brand-tag">管理后台</span></a>
+    <nav class="head-nav" aria-label="后台导航">
+      <a href="/admin" {{ if eq .Active "home" }}class="is-on"{{ end }}>概览</a>
+      <a href="/admin/upload" {{ if eq .Active "upload" }}class="is-on"{{ end }}>上传</a>
+      <a href="/admin/telegram" {{ if eq .Active "telegram" }}class="is-on"{{ end }}>TG 频道</a>
+      <a href="/admin/books" {{ if eq .Active "books" }}class="is-on"{{ end }}>书籍</a>
+      <a href="/admin/settings" {{ if eq .Active "settings" }}class="is-on"{{ end }}>解析设置</a>
+      <a href="/">看前台</a>
+    </nav>
+    <form action="/admin/logout" method="post" class="logout-form">
+      <button class="chip" type="submit">退出</button>
+    </form>
+  </div>
+</header>
+
+<main id="main" class="wrap site-main">
+  {{ if .Flash }}
+  <p class="flash flash-{{ .Kind }}" role="status">{{ .Flash }}</p>
+  {{ end }}
+  {{ block "content" . }}{{ end }}
+</main>
+
+{{ block "scripts" . }}{{ end }}
+</body>
+</html>

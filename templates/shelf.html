@@ -1,0 +1,29 @@
+{{ define "title" }}书架 · {{ .SiteName }}{{ end }}
+
+{{ define "content" }}
+<div class="page-head">
+  <h1>书架</h1>
+  <p class="page-sub">共 {{ .Page.Total }} 本{{ if .Q }}，匹配“{{ .Q }}”{{ end }}</p>
+</div>
+
+<div class="toolbar">
+  <div class="seg" role="group" aria-label="排序方式">
+    {{ range .OrderOptions }}
+      <a class="seg-item {{ if eq $.Order .Key }}is-on{{ end }}"
+         href="/books?order={{ .Key }}{{ queryQS "q" $.Q }}">{{ .Label }}</a>
+    {{ end }}
+  </div>
+</div>
+
+{{ if .Books }}
+<div class="book-grid">
+  {{ range .Books }}{{ template "bookCard" . }}{{ end }}
+</div>
+{{ template "pager" (dict "Page" .Page "Base" "/books" "Extra" (printf "&order=%s%s" .Order (queryQS "q" .Q))) }}
+{{ else }}
+<section class="empty">
+  <h2>没有匹配的书</h2>
+  <p>换个关键词，或者<a href="/books">看看全部</a>。</p>
+</section>
+{{ end }}
+{{ end }}

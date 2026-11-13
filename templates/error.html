@@ -1,0 +1,9 @@
+{{ define "title" }}{{ .Status }} · {{ .SiteName }}{{ end }}
+
+{{ define "content" }}
+<section class="empty">
+  <h1 class="error-code">{{ .Status }}</h1>
+  <h2>{{ .Detail }}</h2>
+  <p><a href="/">回首页</a> · <a href="/books">去书架</a></p>
+</section>
+{{ end }}

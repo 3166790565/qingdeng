@@ -1,0 +1,40 @@
+{{ define "title" }}《{{ .Book.Title }}》章节 · {{ .SiteName }} 后台{{ end }}
+
+{{ define "content" }}
+<div class="page-head">
+  <h1>《{{ .Book.Title }}》章节</h1>
+  <p class="page-sub">
+    {{ modeLabel .Book.SplitMode }} · {{ .Page.Total }} 章 · {{ wordCount .Book.WordCount }}
+  </p>
+</div>
+
+<p class="form-actions">
+  <a class="btn btn-ghost" href="/book/{{ .Book.ID }}">前台看这本</a>
+  <a class="btn btn-ghost" href="/admin/books/{{ .Book.ID }}/edit">编辑信息 / 重新分章</a>
+  <a class="btn btn-ghost" href="/admin/books">返回列表</a>
+</p>
+
+{{ if .Chapters }}
+<div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>序号</th><th>章名</th><th>字数</th><th>操作</th></tr></thead>
+    <tbody>
+      {{ range .Chapters }}
+      <tr>
+        <td>{{ .Idx }}</td>
+        <td>{{ .Title }}</td>
+        <td class="nowrap">{{ .WordCount }}</td>
+        <td class="nowrap">
+          <a href="/book/{{ $.Book.ID }}/read/{{ .Idx }}">阅读</a>
+          <a href="/admin/chapters/{{ .ID }}/edit">编辑</a>
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ template "pager" (dict "Page" .Page "Base" (printf "/admin/books/%d/chapters" .Book.ID) "Extra" "") }}
+{{ else }}
+<section class="empty"><h2>这本书没有章节</h2><p>可以试试重新分章。</p></section>
+{{ end }}
+{{ end }}

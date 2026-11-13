@@ -1,0 +1,60 @@
+{{ define "title" }}{{ if .Q }}搜索“{{ .Q }}” · {{ end }}{{ .SiteName }}{{ end }}
+
+{{ define "content" }}
+<div class="page-head">
+  <h1>搜索</h1>
+  <p class="page-sub">书名模式匹配书名与作者；全文模式检索所有章节正文。</p>
+</div>
+
+<form class="search-form" action="/search" method="get" role="search">
+  <label class="visually-hidden" for="search-q">搜索关键词</label>
+  <input id="search-q" type="search" name="q" value="{{ .Q }}" placeholder="输入关键词" autofocus>
+  <div class="seg" role="group" aria-label="搜索模式">
+    <label class="seg-item {{ if eq .Mode "title" }}is-on{{ end }}">
+      <input type="radio" name="mode" value="title" {{ if eq .Mode "title" }}checked{{ end }}> 书名
+    </label>
+    <label class="seg-item {{ if eq .Mode "full" }}is-on{{ end }}">
+      <input type="radio" name="mode" value="full" {{ if eq .Mode "full" }}checked{{ end }}> 全文
+    </label>
+  </div>
+  <button class="btn btn-primary" type="submit">搜索</button>
+</form>
+
+{{ if .Q }}
+  <p class="result-count">
+    {{ if eq .Mode "full" }}命中 {{ .Total }} 个章节{{ else }}找到 {{ .Total }} 本书{{ end }}
+    {{ if and (eq .Mode "full") (lt (runeLen .Q) .FTSMin) }}
+      <span class="hint">（关键词短于 {{ .FTSMin }} 字，已退回逐字匹配，速度较慢）</span>
+    {{ end }}
+  </p>
+
+  {{ if eq .Mode "full" }}
+    {{ if .Hits }}
+    <ul class="hit-list">
+      {{ range .Hits }}
+      <li class="hit">
+        <h3 class="hit-title">
+          <a href="/book/{{ .BookID }}/read/{{ .Idx }}">{{ .ChapterTitle }}</a>
+        </h3>
+        <p class="hit-book">
+          <a href="/book/{{ .BookID }}">{{ .BookTitle }}</a>
+          <span class="dot">·</span>{{ .Author }}
+        </p>
+        <p class="hit-frag">{{ .FragHTML }}</p>
+      </li>
+      {{ end }}
+    </ul>
+    {{ template "pager" (dict "Page" .Page "Base" "/search" "Extra" (printf "&mode=full&q=%s" .Q)) }}
+    {{ else }}
+    <section class="empty"><h2>没有命中</h2><p>换个词组试试，全文检索按连续字串匹配。</p></section>
+    {{ end }}
+  {{ else }}
+    {{ if .Books }}
+    <div class="book-grid">{{ range .Books }}{{ template "bookCard" . }}{{ end }}</div>
+    {{ template "pager" (dict "Page" .Page "Base" "/search" "Extra" (printf "&mode=title&q=%s" .Q)) }}
+    {{ else }}
+    <section class="empty"><h2>没有同名的书</h2><p>试试<a href="/search?mode=full&q={{ .Q }}">全文检索“{{ .Q }}”</a>。</p></section>
+    {{ end }}
+  {{ end }}
+{{ end }}
+{{ end }}

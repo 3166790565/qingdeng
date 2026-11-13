@@ -1,0 +1,40 @@
+{{ define "title" }}任务 {{ shortID .Job.ID }} · {{ .SiteName }} 后台{{ end }}
+
+{{ define "content" }}
+<div class="page-head">
+  <h1>任务 <code>{{ shortID .Job.ID }}</code></h1>
+  <p class="page-sub">{{ .Job.CreatedAt }} · 状态 {{ .Job.Status }} · {{ .Job.Done }} / {{ .Job.Total }}</p>
+</div>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>文件 / 书名</th><th>结果</th><th>分章</th><th>章数</th><th>字数</th><th>备注</th></tr></thead>
+      <tbody>
+        {{ range .Job.Log }}
+        <tr class="row-{{ .Status }}">
+          <td>{{ .File }}</td>
+          <td>
+            {{ if eq .Status "ok" }}<span class="tag tag-ok">成功</span>
+            {{ else if eq .Status "skip" }}<span class="tag tag-plain">跳过</span>
+            {{ else }}<span class="tag tag-err">失败</span>{{ end }}
+          </td>
+          <td>{{ if .Mode }}<span class="tag tag-{{ .Mode }}">{{ .ModeLabel }}</span>{{ end }}</td>
+          <td>{{ if .Chapters }}{{ .Chapters }}{{ end }}</td>
+          <td>{{ if .Words }}{{ .Words }}{{ end }}</td>
+          <td class="cell-note">
+            {{ .Message }}
+            {{ if .BookID }} <a href="/admin/books/{{ .BookID }}/chapters">查看</a>{{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p class="form-actions">
+  <a class="btn btn-ghost" href="/admin/upload">回上传页</a>
+  <a class="btn btn-ghost" href="/admin/books">看书籍列表</a>
+</p>
+{{ end }}

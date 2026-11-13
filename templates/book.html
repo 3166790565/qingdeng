@@ -1,0 +1,64 @@
+{{ define "title" }}{{ .Book.Title }} · {{ .SiteName }}{{ end }}
+
+{{ define "content" }}
+<article class="book-detail" data-book-id="{{ .Book.ID }}">
+  <div class="detail-cover"
+       {{ if .Book.CoverURL }}style="background-image:url('{{ .Book.CoverURL }}');background-size:cover;background-position:center"
+       {{ else }}style="background:{{ coverGradient .Book.Title }}"{{ end }}>
+    {{ if not .Book.CoverURL }}<span class="cover-initial">{{ coverInitial .Book.Title }}</span>{{ end }}
+  </div>
+
+  <div class="detail-body">
+    <h1 class="detail-title">{{ .Book.Title }}</h1>
+    <p class="detail-meta">
+      <span>{{ .Book.Author }}</span>
+      <span class="dot">·</span>
+      <span>{{ wordCount .Book.WordCount }}</span>
+      <span class="dot">·</span>
+      <span>{{ if .Single }}单章{{ else }}{{ .Book.ChapterCount }} 章{{ end }}</span>
+      {{ if .Book.Category }}<span class="dot">·</span><span>{{ .Book.Category }}</span>{{ end }}
+    </p>
+    <p class="detail-tags">
+      <span class="tag tag-{{ .Book.SplitMode }}">{{ modeLabel .Book.SplitMode }}</span>
+      <span class="tag tag-plain">入库 {{ dateOnly .Book.CreatedAt }}</span>
+    </p>
+
+    {{ if .Book.Intro }}<p class="detail-intro">{{ .Book.Intro }}</p>{{ end }}
+
+    <div class="detail-actions">
+      {{ if .HasFirst }}
+        <a class="btn btn-primary" href="/book/{{ .Book.ID }}/read/{{ .FirstIdx }}">
+          {{ if .Single }}开始阅读{{ else }}从头开始{{ end }}
+        </a>
+        <a class="btn btn-ghost is-hidden" href="#" data-resume>继续阅读</a>
+      {{ else }}
+        <span class="btn is-off">暂无正文</span>
+      {{ end }}
+    </div>
+  </div>
+</article>
+
+{{ if not .Single }}
+<section class="section">
+  <div class="section-head">
+    <h2 id="catalog">目录</h2>
+    <p class="page-sub">共 {{ .Book.ChapterCount }} 章</p>
+  </div>
+  <ol class="catalog">
+    {{ range .Chapters }}
+    <li>
+      <a href="/book/{{ $.Book.ID }}/read/{{ .Idx }}">
+        <span class="catalog-title">{{ .Title }}</span>
+        <span class="catalog-words">{{ .WordCount }} 字</span>
+      </a>
+    </li>
+    {{ end }}
+  </ol>
+  {{ template "pager" (dict "Page" .Page "Base" (printf "/book/%d" .Book.ID) "Extra" "") }}
+</section>
+{{ end }}
+{{ end }}
+
+{{ define "scripts" }}
+<script src="/static/js/reader.js" defer></script>
+{{ end }}

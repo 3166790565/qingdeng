@@ -1,0 +1,32 @@
+{{ define "title" }}接口文档 · {{ .SiteName }}{{ end }}
+
+{{ define "content" }}
+<div class="page-head">
+  <h1>书源接口</h1>
+  <p class="page-sub">四个只读 JSON 接口，统一返回 <code>{"isSuccess": true, "data": ...}</code>。</p>
+</div>
+
+<section class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>接口</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /api/search?key=&amp;page=</code></td><td>书名与作者模糊匹配</td></tr>
+        <tr><td><code>GET /api/book/{id}</code></td><td>详情，含最新章节</td></tr>
+        <tr><td><code>GET /api/book/{id}/catalog?page=</code></td><td>目录（<code>id</code>、<code>title</code>、<code>url</code>，多页时给 <code>nextUrl</code>）</td></tr>
+        <tr><td><code>GET /api/chapter/{id}</code></td><td>章节正文，段落以 <code>\n</code> 分隔纯文本</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><h2>导入书源</h2></div>
+  <p>开源阅读 → 书源管理 → 右上角 → 网络导入，地址填：</p>
+  <p><code>{{ .BaseURL }}/legado/源.json</code></p>
+  <p class="field-hint">
+    这个地址按服务端当前的 <code>SITE_BASE_URL</code> 与 <code>API_TOKEN</code> 实时生成，不用手改。
+    {{ if .HasToken }}当前已启用 API token，书源 URL 会自动带上同一个 token 参数。{{ else }}当前未设置 API token，接口公开。{{ end }}
+  </p>
+</section>
+{{ end }}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ block "title" . }}{{ .SiteName }}{{ end }}</title>
+  {{ block "description" . }}<meta name="description" content="{{ .SiteName }}——{{ .SiteTagline }}">{{ end }}
+  <link rel="stylesheet" href="/static/css/app.css">
+  {{ block "head" . }}{{ end }}
+</head>
+<body class="{{ block "bodyClass" . }}{{ end }}">
+<a class="skip-link" href="#main">跳到正文</a>
+
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="/">
+      <span class="brand-name">{{ .SiteName }}</span>
+      <span class="brand-tag">{{ .SiteTagline }}</span>
+    </a>
+    <nav class="head-nav" aria-label="主导航">
+      <a href="/books">书架</a>
+      <a href="/search">搜索</a>
+      <a href="/admin">后台</a>
+    </nav>
+    <form class="head-search" action="/search" method="get" role="search">
+      <label class="visually-hidden" for="head-q">按书名或作者搜索</label>
+      <input id="head-q" type="search" name="q" placeholder="书名 / 作者" value="{{ .Q }}">
+      <button type="submit">搜索</button>
+    </form>
+  </div>
+</header>
+
+<main id="main" class="wrap site-main">
+  {{ block "content" . }}{{ end }}
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <p>{{ .SiteName }} · 本地自建书库</p>
+    <p class="foot-links"><a href="/api/docs">接口文档</a> · <a href="/admin">管理后台</a></p>
+  </div>
+</footer>
+
+{{ block "scripts" . }}{{ end }}
+</body>
+</html>
