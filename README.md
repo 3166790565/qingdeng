@@ -214,23 +214,158 @@ TG_PROXY_URL=socks5://host.docker.internal:7890
 
 ## 部署
 
-### Docker
+推荐直接拉现成镜像。镜像已发布在 Docker Hub：
+
+- `bxacc123/qingdeng:latest`
+- 版本号标签：`bxacc123/qingdeng:2026.11.14.4`（想锁定版本就用它）
+
+### 方式一：拉镜像部署（推荐）
+
+服务器上只要装了 Docker，不需要 Go 环境、不需要源码。
 
 ```bash
-cp .env.example .env
-# 必改：ADMIN_PASSWORD、SECRET_KEY、SITE_BASE_URL=https://你的域名
+mkdir -p /srv/qingdeng && cd /srv/qingdeng
+
+# 1. 拿 compose 与配置模板
+curl -O https://raw.githubusercontent.com/3166790565/qingdeng/master/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/3166790565/qingdeng/master/.env.example
+mv .env.example .env
+
+# 2. 改配置：密码、会话密钥、对外地址
+vi .env
+
+# 3. 建数据目录并交给容器的 uid（关键，否则启动即失败）
 mkdir -p data
-sudo chown -R 1000:1000 data   # 容器以 uid 1000 运行，见下方说明
-docker compose up -d --build
-docker compose logs -f web
+sudo chown -R 1000:1000 data
+
+# 4. 拉镜像并启动
+IMAGE=bxacc123/qingdeng:latest docker compose -f docker-compose.prod.yml up -d
+
+# 5. 看日志确认起来了
+docker compose -f docker-compose.prod.yml logs -f web
 ```
 
-容器以 **uid 1000** 运行，`data/` 是 bind mount，宿主机目录必须 `chown 1000:1000`。
-没做的话启动会直接退出，错误信息里会带上要执行的命令。
+打开 `http://服务器IP:8000`，后台在 `/admin`，密码是 `.env` 里的 `ADMIN_PASSWORD`
+（没配 `ADMIN_PASSWORD` 的话，随机密码会打印在启动日志里）。
 
-镜像用 `scratch` 构建（只有静态二进制 + 模板/静态资源 + 时区/CA），
-`data/` 是唯一的持久化目录（`novel.db`、WAL、TG 会话、批量导入日志都在里面）。
-容器以 uid 1000 运行，不是 root。
+几个只在 compose 里生效的变量，写在 `.env` 里即可：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `IMAGE` | `bxacc123/qingdeng:latest` | 用哪个镜像，也可以临时 `IMAGE=... docker compose up -d` |
+| `HOST_PORT` | `8000` | 映射到宿主机的端口，被占用时改它 |
+| `BIND_ADDR` | `127.0.0.1` | 绑哪个地址。默认只对本机开，靠前面的 nginx 出去 |
+| `DB_FILE` | `novel.db` | `data/` 里用哪个库文件，换库就是改这一项 |
+
+`SITE_BASE_URL` 一定要改成实际可访问地址——它会被写进书源和 API 返回的 URL，
+填错的话开源阅读里的章节链接全是 `127.0.0.1`。
+
+#### 不想用 compose，直接 docker run
+
+```bash
+sudo mkdir -p /srv/qingdeng/data && sudo chown -R 1000:1000 /srv/qingdeng/data
+cd /srv/qingdeng
+
+docker run -d --name qingdeng --restart unless-stopped   -p 127.0.0.1:8000:8000   --env-file .env   -e NOVEL_DATA_DIR=/data -e NOVEL_DB_PATH=/data/novel.db -e TZ=Asia/Shanghai   -v /srv/qingdeng/data:/data   --add-host host.docker.internal:host-gateway   bxacc123/qingdeng:latest
+
+docker logs -f qingdeng
+```
+
+`--add-host` 是给 TG 代理用的（见下方「连不上 TG」）。
+
+#### 升级到新镜像
+
+```bash
+cd /srv/qingdeng
+docker compose -f docker-compose.prod.yml pull
+IMAGE=bxacc123/qingdeng:latest docker compose -f docker-compose.prod.yml up -d
+```
+
+库在 `data/` 里，重建容器不影响数据。
+
+#### 用错跑错了要回滚
+
+`docker-compose.prod.yml` 里的镜像标签由环境变量 `IMAGE` 决定，改回旧标签即可：
+
+```bash
+IMAGE=bxacc123/qingdeng:2026.11.14.3 docker compose -f docker-compose.prod.yml up -d
+```
+
+### 方式二：从源码构建镜像
+
+改了代码，或者想自己掌控镜像内容时用这条。
+
+```bash
+git clone https://github.com/3166790565/qingdeng.git
+cd qingdeng
+
+# 1. 交叉编译 Linux 静态二进制 + 备好资源/证书/时区
+sh deploy/prepare.sh
+
+# 2. 构建镜像
+docker build -f Dockerfile.runtime -t qingdeng:local .
+
+# 3. 起服务（把 IMAGE 指向刚构建的标签）
+cp .env.example .env && vi .env
+mkdir -p data && sudo chown -R 1000:1000 data
+IMAGE=qingdeng:local docker compose -f docker-compose.prod.yml up -d
+```
+
+也可以直接用多阶段构建的 `Dockerfile`（需要能访问 Docker Hub 拉 golang 镜像）：
+
+```bash
+docker build -t qingdeng:local .
+docker compose up -d --build
+```
+
+### 数据目录权限（必读）
+
+镜像以 **uid 1000** 运行，不是 root。`data/` 是 bind mount，宿主机目录的属主不会
+跟着容器变，所以必须手动对齐一次：
+
+```bash
+mkdir -p data
+sudo chown -R 1000:1000 data
+```
+
+没做的话启动时会直接退出，错误信息里带修复命令：
+
+```
+加载配置失败：数据目录 /data 不可写（当前 uid=1000）。容器里常见原因是挂载目录
+归 root 所有，在宿主机执行：sudo chown -R 1000:1000 /data。
+```
+
+> 从旧镜像升级过来时，`data/` 里的 `novel.db` 可能还是 root 所有，先 chown 一次。
+
+### 连不上 TG：配代理
+
+国内服务器直连 Telegram 会超时，需要一条出口。**后台页面优先**：
+
+1. 后台「TG 频道」页 → 出站代理 → 填地址 → 保存（立即生效）
+2. 或 `.env` 里 `TG_PROXY_URL=socks5://host.docker.internal:7890`
+
+支持 `socks5://` 与 `http://`（Clash 的 Mixed 端口两者都认），带认证写
+`socks5://user:pass@host:port`，不写协议前缀时按 `http://` 处理。
+
+**Docker 下的地址是最大的坑**：容器里的 `127.0.0.1` 是容器自己，不是宿主机。
+
+| 你的情况 | 填什么 |
+| --- | --- |
+| 代理在宿主机（`docker-compose.prod.yml` 已配 `extra_hosts`） | `socks5://host.docker.internal:7890` |
+| 代理在另一个容器里 | `socks5://那个容器名:7890` |
+| 代理只监听 127.0.0.1 且无法改 | 用 `docker-compose.prod-host.yml`（host 网络），才能填 `socks5://127.0.0.1:7890` |
+
+Clash 这类面板要把「允许局域网」打开，否则它只监听 `127.0.0.1`，容器从网关 IP
+过来会被拒。验一下：`ss -lntp | grep 7890` 应该看到 `0.0.0.0:7890`。
+
+### 镜像里有什么
+
+`FROM scratch`，只有：静态二进制（`CGO_ENABLED=0`，不依赖 glibc）、
+`/app` 下的模板/静态资源/schema、时区数据、CA 证书。所以：
+
+- 没有 shell，`docker exec sh` 用不了；排障看 `docker logs`
+- 没有 curl/wget，健康检查要从宿主机或编排层打（compose 里用 `/dev/tcp`）
+- CA 证书是构建时拷进去的，一年左右重建一次镜像以更新
 
 ### 裸机 systemd
 
