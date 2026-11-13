@@ -208,3 +208,60 @@ func TestBufferedConn(t *testing.T) {
 		t.Fatalf("拼接结果不对：%q%q", buf, rest)
 	}
 }
+
+// Clash 的 Mixed 端口常被粘贴成裸 host:port，不该因为少了协议前缀就失败。
+func TestBareHostPortDefaultsToHTTP(t *testing.T) {
+	for _, raw := range []string{"127.0.0.1:7890", "host.docker.internal:7890"} {
+		cfg := ProxyConfig{URL: raw, Timeout: time.Second}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("%s 应被接受，得到：%v", raw, err)
+		}
+		dial, err := cfg.dialFunc()
+		if err != nil || dial == nil {
+			t.Errorf("%s 应能构造 dialer，得到 %v, %v", raw, dial, err)
+		}
+	}
+}
+
+// 缺端口要给出能看懂的提示，而不是让 url.Parse 的默认端口蒙混过去。
+func TestProxyMissingPort(t *testing.T) {
+	cfg := ProxyConfig{URL: "socks5://127.0.0.1"}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "端口") {
+		t.Fatalf("应提示缺端口，得到：%v", err)
+	}
+}
+
+// 用 HTTP 客户端去连一个 SOCKS5-only 端口时，错误里要给出换协议的提示。
+func TestHTTPDialHintOnWrongProtocol(t *testing.T) {
+	// 起一个只说 SOCKS5 的监听：收到 HTTP CONNECT 会读不出合法请求行
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// 回一段不是 HTTP 的字节，模拟协议不匹配
+			c.Write([]byte("\x05\x00"))
+			c.Close()
+		}
+	}()
+
+	cfg := ProxyConfig{URL: "http://" + ln.Addr().String(), Timeout: 2 * time.Second}
+	dial, err := cfg.dialFunc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = dial(context.Background(), "tcp", "127.0.0.1:1")
+	if err == nil {
+		t.Fatal("协议不匹配时应报错")
+	}
+	if !strings.Contains(err.Error(), "socks5://") {
+		t.Fatalf("错误里应提示换用 socks5://，得到：%v", err)
+	}
+}

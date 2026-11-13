@@ -73,12 +73,21 @@ func (p ProxyConfig) dialFunc() (dcs.DialFunc, error) {
 	if !p.Enabled() {
 		return nil, nil
 	}
-	parsed, err := url.Parse(strings.TrimSpace(p.URL))
+	raw := strings.TrimSpace(p.URL)
+	// 没写协议时按 http 处理：Clash 的 Mixed 端口同时支持 HTTP 与 SOCKS5，
+	// 而用户粘贴 127.0.0.1:7890 是最常见的形态，不该因为少个前缀直接失败。
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	parsed, err := url.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("代理地址解析失败：%w", err)
 	}
 	if parsed.Host == "" {
-		return nil, fmt.Errorf("代理地址缺少主机与端口：%s", p.URL)
+		return nil, fmt.Errorf("代理地址缺少主机与端口：%s（应形如 socks5://127.0.0.1:7890）", p.URL)
+	}
+	if parsed.Port() == "" {
+		return nil, fmt.Errorf("代理地址缺少端口：%s（应形如 socks5://127.0.0.1:7890）", p.URL)
 	}
 
 	timeout := p.Timeout
@@ -105,7 +114,13 @@ func (p ProxyConfig) dialFunc() (dcs.DialFunc, error) {
 
 	case "http", "https":
 		return func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dialViaHTTPProxy(ctx, parsed, network, addr, timeout)
+			conn, err := dialViaHTTPProxy(ctx, parsed, network, addr, timeout)
+			if err != nil {
+				// Clash 的 Mixed 端口两种协议都收，但填错协议时握手会失败；
+				// 这里补一句提示，省得用户盯着晦涩的报错猜。
+				return nil, fmt.Errorf("%w（若代理是 SOCKS5 专用端口，请改用 socks5:// 前缀）", err)
+			}
+			return conn, nil
 		}, nil
 
 	default:
