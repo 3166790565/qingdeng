@@ -91,10 +91,23 @@ func New(cfg *config.Config, db *store.DB, imp *importer.Importer) *Manager {
 // APIReady 应用凭证是否已配置。
 func (m *Manager) APIReady() bool { return m.cfg.TGReady() }
 
-// LoggedIn 只看会话文件在不在；真伪要等连上网才知道。
+// LoggedIn 用持久手机号与会话文件判断是否已有可恢复的授权状态。
 func (m *Manager) LoggedIn() bool {
-	_, err := os.Stat(m.sessionPath)
-	return err == nil
+	m.mu.Lock()
+	if m.pending != nil {
+		m.mu.Unlock()
+		return false
+	}
+	if m.api != nil {
+		m.mu.Unlock()
+		return true
+	}
+	m.mu.Unlock()
+
+	if _, err := os.Stat(m.sessionPath); err != nil {
+		return false
+	}
+	return m.Phone(context.Background()) != ""
 }
 
 // Phone 返回上次登录用的手机号。
@@ -104,6 +117,15 @@ func (m *Manager) Phone(ctx context.Context) string {
 }
 
 // PendingStep 页面渲染用："" 无进行中登录，"code" 待输验证码，"password" 待输 2FA。
+func (m *Manager) PendingPhone() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pending == nil || time.Now().After(m.pending.expiresAt) {
+		return ""
+	}
+	return m.pending.phone
+}
+
 func (m *Manager) PendingStep() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -159,6 +181,10 @@ func (m *Manager) ensureClient(ctx context.Context) (*tg.Client, error) {
 	}
 
 	m.mu.Lock()
+	if m.pending != nil {
+		m.mu.Unlock()
+		return nil, errors.New("Telegram 登录尚未完成，请先验证验证码或云密码")
+	}
 	if m.api != nil {
 		api := m.api
 		m.mu.Unlock()
@@ -324,6 +350,7 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 	}
 
 	if err := m.startClientAnon(ctx); err != nil {
+		restore()
 		return err
 	}
 
@@ -345,9 +372,19 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 	case *tg.AuthSentCode:
 		codeHash = s.PhoneCodeHash
 	case *tg.AuthSentCodeSuccess:
-		// 极少数情况直接成功（已有授权），交给后续状态查询处理
-		m.finishLogin(number)
-		return nil
+		switch s.Authorization.(type) {
+		case *tg.AuthAuthorization:
+			m.finishLogin(number)
+			return nil
+		case *tg.AuthAuthorizationSignUpRequired:
+			m.teardownClient()
+			restore()
+			return errors.New("Telegram 要求先注册此账号，当前登录流程不支持注册")
+		default:
+			m.teardownClient()
+			restore()
+			return fmt.Errorf("发送验证码失败：收到未识别的授权结果 %T", s.Authorization)
+		}
 	}
 	if codeHash == "" {
 		m.teardownClient()
@@ -355,6 +392,11 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 		return errors.New("发送验证码失败：服务端未返回 code hash")
 	}
 
+	if err := m.db.DeleteSetting(ctx, "tg_phone"); err != nil {
+		m.teardownClient()
+		restore()
+		return fmt.Errorf("保存登录状态失败：%w", err)
+	}
 	m.mu.Lock()
 	m.pending = &pendingLogin{
 		phone: number, codeHash: codeHash, step: "code",

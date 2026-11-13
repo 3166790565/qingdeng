@@ -38,6 +38,15 @@ func formInt(r *http.Request, key string) int {
 	return n
 }
 
+// formPostInt 取 POST 表单整数，支持 multipart/form-data。
+func formPostInt(r *http.Request, key string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue(key)))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // formBool 复选框：只要传了值就算勾选（HTML checkbox 不勾选时不发送字段）。
 func formBool(r *http.Request, key string) bool {
 	return strings.TrimSpace(r.FormValue(key)) != ""

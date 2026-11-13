@@ -33,9 +33,10 @@ func (a *App) tgContext(r *http.Request) map[string]any {
 	return map[string]any{
 		"Active":       "telegram",
 		"APIReady":     apiReady,
-		"LoggedIn":     apiReady && a.TG.LoggedIn(),
+		"LoggedIn":     apiReady && pending == "" && a.TG.LoggedIn(),
 		"Phone":        a.TG.Phone(ctx),
 		"PendingStep":  pending,
+		"PendingPhone": a.TG.PendingPhone(),
 		"Channels":     list,
 		"SyncInterval": interval,
 		"SyncBusy":     a.TG.SyncBusy(),
@@ -57,8 +58,7 @@ func (a *App) telegramPage(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- 登录（fetch JSON）
 
 func (a *App) tgLoginSend(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	if err := a.TG.SendCode(r.Context(), r.FormValue("phone")); err != nil {
+	if err := a.TG.SendCode(r.Context(), r.PostFormValue("phone")); err != nil {
 		JSON(w, 400, map[string]any{"ok": false, "message": err.Error()})
 		return
 	}
@@ -66,8 +66,7 @@ func (a *App) tgLoginSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) tgLoginVerify(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	needPassword, err := a.TG.VerifyCode(r.Context(), r.FormValue("code"))
+	needPassword, err := a.TG.VerifyCode(r.Context(), r.PostFormValue("code"))
 	if err != nil {
 		JSON(w, 400, map[string]any{"ok": false, "message": err.Error()})
 		return
@@ -80,8 +79,7 @@ func (a *App) tgLoginVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) tgLoginPassword(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	if err := a.TG.VerifyPassword(r.Context(), r.FormValue("password")); err != nil {
+	if err := a.TG.VerifyPassword(r.Context(), r.PostFormValue("password")); err != nil {
 		JSON(w, 400, map[string]any{"ok": false, "message": err.Error()})
 		return
 	}
@@ -170,8 +168,7 @@ func (a *App) tgProxySave(w http.ResponseWriter, r *http.Request) {
 
 // tgProxyTest 检测代理连通性。candidate 为空时测当前已保存的配置。
 func (a *App) tgProxyTest(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	candidate := strings.TrimSpace(r.FormValue("proxy_url"))
+	candidate := strings.TrimSpace(r.PostFormValue("proxy_url"))
 	result := a.TG.ProbeProxy(r.Context(), candidate)
 	JSON(w, 200, map[string]any{
 		"ok":      result.OK,
@@ -213,14 +210,13 @@ func (a *App) tgSettingsSave(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- 触发同步
 
 func (a *App) tgSync(w http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
 	if a.TG.SyncBusy() {
 		JSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "已有同步任务在进行，请稍后再试"})
 		return
 	}
-	channelID := strings.TrimSpace(r.FormValue("channel_id"))
-	forceMode := r.FormValue("force_mode")
-	targetChars := formInt(r, "target_chars")
+	channelID := strings.TrimSpace(r.PostFormValue("channel_id"))
+	forceMode := r.PostFormValue("force_mode")
+	targetChars := formPostInt(r, "target_chars")
 
 	ctx := context.Background()
 	if channelID == "all" {

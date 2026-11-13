@@ -17,7 +17,7 @@
     </p>
   </div>
 
-  {{ else if .LoggedIn }}
+  {{ else if and (ne .PendingStep "code") (ne .PendingStep "password") .LoggedIn }}
   <div class="field">
     <p>已登录：<strong>{{ .Phone }}</strong></p>
     <p class="field-hint">会话保存在数据目录的 tg.session 里，重启服务不用重新登录。</p>
@@ -29,7 +29,7 @@
 
   {{ else if eq .PendingStep "code" }}
   <div class="field">
-    <p>验证码已发到 <strong>{{ .Phone }}</strong></p>
+    <p>验证码已发送到 <strong>{{ .PendingPhone }}</strong></p>
     <label for="tg-code">输入验证码</label>
     <input id="tg-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
     <p class="field-hint">收不到可以回上一步重发。</p>

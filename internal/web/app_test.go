@@ -1,8 +1,10 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -135,7 +137,34 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-// 后台页面未登录跳登录页；接口未登录返回 401 JSON。
+func TestTelegramSendCodeReadsMultipartPhone(t *testing.T) {
+	app, _ := testApp(t, nil)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("phone", "+1234"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/telegram/api/login/send", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: "novel_admin", Value: app.Render.signSession()})
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("响应不是 JSON：%s", rec.Body.String())
+	}
+	message, _ := payload["message"].(string)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(message, "手机号位数不对") {
+		t.Fatalf("multipart 手机号未正确解析，得到 %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAdminGuards(t *testing.T) {
 	app, db := testApp(t, nil)
 	seedBook(t, db)
