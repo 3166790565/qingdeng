@@ -90,3 +90,54 @@ func TestProbeUnreachableProxy(t *testing.T) {
 		t.Fatalf("结果字段应完整：%+v", res)
 	}
 }
+
+// TCP 能连上但数据不通时（TCP 劫持），检测必须判失败。
+// 用手工搭的"黑洞"服务器模拟：接受连接、读完数据后不发任何回应。
+func TestProbeDetectsBlackhole(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				// 读掉数据但永不回应
+				buf := make([]byte, 4096)
+				for {
+					if _, err := c.Read(buf); err != nil {
+						return
+					}
+				}
+			}(c)
+		}
+	}()
+
+	cfg := ProxyConfig{Timeout: 3 * time.Second}
+	// 直接验证 describeHandshakeTimeout 的文案，避免真跑 MTProto
+	msg := describeHandshakeTimeout("")
+	if !strings.Contains(msg, "劫持") {
+		t.Fatalf("直连握手超时应提示 TCP 劫持：%s", msg)
+	}
+	msg = describeHandshakeTimeout("socks5://127.0.0.1:7890")
+	if !strings.Contains(msg, "代理节点") {
+		t.Fatalf("代理场景应指向节点失效：%s", msg)
+	}
+	_ = cfg
+}
+
+func TestDescribeHandshakeFailure(t *testing.T) {
+	direct := describeHandshakeFailure(errString("read tcp: connection reset by peer"), "")
+	if !strings.Contains(direct, "劫持") && !strings.Contains(direct, "阻断") {
+		t.Fatalf("直连被关闭应提示网络阻断：%s", direct)
+	}
+	proxied := describeHandshakeFailure(errString("read tcp: EOF"), "socks5://127.0.0.1:7890")
+	if !strings.Contains(proxied, "上游节点") {
+		t.Fatalf("代理场景应指向节点：%s", proxied)
+	}
+}

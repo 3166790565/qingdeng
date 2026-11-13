@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/net/proxy"
 
+	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/dcs"
 )
@@ -243,38 +244,113 @@ type ProbeResult struct {
 // 149.154.167.51 是 DC2 生产地址，长期没变。
 const probeTarget = "149.154.167.51:443"
 
-// Probe 检测经由当前代理能否建立到 Telegram 的 TCP 连接。
+// Probe 检测经由当前代理能否真正和 Telegram 通信。
 //
-// 只做到 TCP 握手，不发起 MTProto 握手：能连上就说明网络链路通，
-// 账密、session 之类的问题留给后续登录流程报。
-// 这样检测结果对“代理配得对不对”是准确的，不会因为别的错误混淆。
+// 只做 TCP 建连是没用的，实测有两种假阳性：
+//
+//  1. Clash 类代理立刻回 "200 Connection Established"，再异步连上游，节点挂了也报成功；
+//  2. 部分网络对 Telegram 的 IP 做 TCP 劫持：三次握手瞬间完成（0–1ms），
+//     之后写入的数据进黑洞，读永远超时。
+//
+// 两种情况的共同特征是"握手成功但数据不通"。所以这里用 gotd 的客户端
+// 真跑一次 MTProto 握手——能在限定时间内拿到授权状态，才说明链路真的通。
+// 客户端的应用凭证随便给（不登录只查状态），Telegram 对未授权的连接也会应答。
 func (p ProxyConfig) Probe(ctx context.Context) ProbeResult {
-	target := probeTarget
-	result := ProbeResult{Proxy: p.URL, Target: target}
+	result := ProbeResult{Proxy: p.URL, Target: "api.telegram.org"}
 
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	// MTProto 握手比单纯 TCP 慢，给足余量
+	if timeout < 15*time.Second {
+		timeout = 15 * time.Second
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// 先单独拨一次，把"代理本身不可达"和"到了 TG 但不通"分开报
 	dial, err := p.Dial("tcp")
 	if err != nil {
 		result.Message = "代理配置有误：" + err.Error()
 		return result
 	}
 	start := time.Now()
-	conn, err := dial(ctx, target)
+	probeConn, err := dial(ctx, probeTarget)
 	result.DialMs = time.Since(start).Milliseconds()
 	if err != nil {
 		result.Message = describeDialFailure(err, p.URL)
 		return result
 	}
-	conn.Close()
-	result.OK = true
-	result.Message = "连接 Telegram 成功"
-	return result
+	probeConn.Close()
+
+	// TCP 通了不代表能用，跑一次真实 MTProto 握手
+	opts, err := p.applyTo(telegram.Options{
+		SessionStorage: &session.StorageMemory{},
+	})
+	if err != nil {
+		result.Message = "代理配置有误：" + err.Error()
+		return result
+	}
+
+	client := telegram.NewClient(probeAppID, probeAppHash, opts)
+	done := make(chan error, 1)
+	go func() {
+		done <- client.Run(ctx, func(ctx context.Context) error {
+			// 只查授权状态：未授权会返回 Authorized=false，但握手已经成功
+			_, err := client.Auth().Status(ctx)
+			return err
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			// 走到这里说明握手阶段就失败了
+			if isDialError(err) || strings.Contains(strings.ToLower(err.Error()), "timeout") {
+				result.Message = "TCP 能连上但 MTProto 握手失败：" + describeHandshakeFailure(err, p.URL)
+			} else {
+				// 未授权等业务错误不影响"链路通"的判断
+				result.OK = true
+				result.Message = "连接 Telegram 成功"
+			}
+			return result
+		}
+		result.OK = true
+		result.Message = "连接 Telegram 成功"
+		return result
+	case <-ctx.Done():
+		result.Message = "TCP 能连上但 MTProto 握手超时（" + timeout.String() + "）：" +
+			describeHandshakeTimeout(p.URL)
+		return result
+	}
+}
+
+// 探测用的应用凭证。不是真实账号，只用于让 Telegram 应答握手。
+const (
+	probeAppID   = 17349
+	probeAppHash = "344583e45741c457fe1862106095a5eb"
+)
+
+// describeHandshakeFailure 解释"TCP 通但握手失败"。
+func describeHandshakeFailure(err error, proxyURL string) string {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "eof") || strings.Contains(msg, "reset") {
+		if proxyURL == "" {
+			return "连接被对端立刻关闭。该网络可能对 Telegram 的 IP 做了劫持或阻断"
+		}
+		return "代理的上游节点没有连上 Telegram，请检查代理节点本身是否可用"
+	}
+	return err.Error()
+}
+
+// describeHandshakeTimeout 解释"TCP 通但握手超时"，这是 TCP 劫持的典型表现。
+func describeHandshakeTimeout(proxyURL string) string {
+	if proxyURL == "" {
+		return "直连时数据发出去没有任何回应。该网络很可能对 Telegram 做了 TCP 劫持（握手能过、数据不通），" +
+			"必须配置代理"
+	}
+	return "数据到达代理后没有回应。代理节点可能已失效，或出口到 Telegram 被阻断"
 }
 
 // describeDialFailure 把底层错误翻译成能直接照做的提示。

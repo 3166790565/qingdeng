@@ -591,8 +591,14 @@ func normalizePhone(raw string) (string, error) {
 				return "", errors.New("手机号里只能有一个 +，且必须在最前面")
 			}
 			b.WriteRune(r)
-		case r == ' ' || r == '-' || r == '(' || r == ')' || r == '.' || r == ' ':
+		case r == ' ' || r == '-' || r == '(' || r == ')' || r == '.' ||
+			r == ' ' || r == '　':
 			continue
+		case r == '＋': // 全角加号，中文输入法常见
+			if b.Len() > 0 {
+				return "", errors.New("手机号里只能有一个 +，且必须在最前面")
+			}
+			b.WriteRune('+')
 		default:
 			return "", fmt.Errorf("手机号里有无法识别的字符 %q。要带国家区号的完整号码，比如 +6598004075、+14155552671", string(r))
 		}
