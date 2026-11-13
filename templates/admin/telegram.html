@@ -116,6 +116,29 @@
   </form>
 </section>
 
+<form class="card form" method="post" action="/admin/telegram/proxy">
+  <div class="section-head"><h2>出站代理</h2></div>
+  <div class="field">
+    <label for="tg-proxy">代理地址</label>
+    <input id="tg-proxy" name="proxy_url" type="text"
+           value="{{ .ProxyURL }}"
+           placeholder="socks5://127.0.0.1:7890 或 http://127.0.0.1:7890">
+    <p class="field-hint">
+      服务器连不上 Telegram 时填这里。支持 <code>socks5://</code> 与 <code>http://</code>；
+      带账号密码就写成 <code>socks5://user:pass@127.0.0.1:7890</code>。留空表示直连。
+    </p>
+    <p class="field-hint">
+      <strong>Docker 部署注意</strong>：容器里的 <code>127.0.0.1</code> 是容器自己，不是宿主机。
+      代理跑在宿主机上时要写 <code>host.docker.internal:7890</code>，或者让容器用
+      <code>network_mode: host</code>；代理跑在网桥里的另一个容器，就用容器名。
+    </p>
+    <p class="field-hint">保存后当前连接会断开，下一次操作自动用新配置重建。</p>
+  </div>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">保存代理</button>
+  </div>
+</form>
+
 <form class="card form" method="post" action="/admin/telegram/settings">
   <div class="section-head"><h2>自动同步</h2></div>
   <div class="field">

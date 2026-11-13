@@ -136,6 +136,22 @@ func (m *Manager) DropLogin() {
 
 // ---------------------------------------------------------------- 客户端生命周期
 
+// newClient 按配置造 Telegram 客户端，出站流量按需走代理。
+//
+// 国内服务器连不上 Telegram 时，在 .env 里配 TG_PROXY_URL；
+// Docker 部署要注意容器里的 127.0.0.1 是容器自己，不是宿主机，
+// 代理跑在宿主机上时要写 host.docker.internal:7890。
+func (m *Manager) newClient(dispatcher tg.UpdateDispatcher) (*telegram.Client, error) {
+	opts, err := ProxyConfig{URL: m.proxyURL(), Timeout: m.cfg.TGProxyTimeout}.applyTo(telegram.Options{
+		SessionStorage: &telegram.FileSessionStorage{Path: m.sessionPath},
+		UpdateHandler:  dispatcher,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("TG 代理配置有误：%w", err)
+	}
+	return telegram.NewClient(m.cfg.TGAPIID, m.cfg.TGAPIHash, opts), nil
+}
+
 // ensureClient 取已授权的客户端；没有会话就返回 NotLoggedIn。
 func (m *Manager) ensureClient(ctx context.Context) (*tg.Client, error) {
 	if !m.APIReady() {
@@ -170,10 +186,10 @@ func (m *Manager) ensureClient(ctx context.Context) (*tg.Client, error) {
 // startClient 启动 Run 循环，等到授权成功才返回。
 func (m *Manager) startClient(ctx context.Context) error {
 	dispatcher := tg.NewUpdateDispatcher()
-	client := telegram.NewClient(m.cfg.TGAPIID, m.cfg.TGAPIHash, telegram.Options{
-		SessionStorage: &telegram.FileSessionStorage{Path: m.sessionPath},
-		UpdateHandler:  dispatcher,
-	})
+	client, err := m.newClient(dispatcher)
+	if err != nil {
+		return err
+	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	ready := make(chan error, 1)
@@ -341,10 +357,10 @@ func (m *Manager) SendCode(ctx context.Context, phone string) error {
 // startClientAnon 启动一个未授权的 client（登录流程专用）。
 func (m *Manager) startClientAnon(ctx context.Context) error {
 	dispatcher := tg.NewUpdateDispatcher()
-	client := telegram.NewClient(m.cfg.TGAPIID, m.cfg.TGAPIHash, telegram.Options{
-		SessionStorage: &telegram.FileSessionStorage{Path: m.sessionPath},
-		UpdateHandler:  dispatcher,
-	})
+	client, err := m.newClient(dispatcher)
+	if err != nil {
+		return err
+	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	ready := make(chan error, 1)
 
@@ -482,6 +498,39 @@ func (m *Manager) Logout(ctx context.Context) error {
 	}
 	_ = os.Remove(m.sessionPath)
 	_ = m.db.DeleteSetting(ctx, "tg_session")
+	return nil
+}
+
+// proxyURL 返回当前生效的代理地址。
+//
+// 后台设置页存的值优先于 .env：填错代理时不用重启服务改配置，
+// 在页面上清空就能立刻回到直连。库里没有记录时用环境变量。
+func (m *Manager) proxyURL() string {
+	value, err := m.db.GetSetting(context.Background(), "tg_proxy_url", "")
+	if err == nil && value != "" {
+		if value == "-" { // 页面上的“直连”用单个减号表示，避免与“没设置”混淆
+			return ""
+		}
+		return value
+	}
+	return m.cfg.TGProxyURL
+}
+
+// ProxyURL 给后台页面显示用。
+func (m *Manager) ProxyURL() string { return m.proxyURL() }
+
+// SetProxyURL 保存代理设置，并断开当前客户端让下次重建时用新配置。
+func (m *Manager) SetProxyURL(ctx context.Context, rawURL string) error {
+	value := strings.TrimSpace(rawURL)
+	stored := value
+	if stored == "" {
+		stored = "-" // 显式直连
+	}
+	if err := m.db.SetSetting(ctx, "tg_proxy_url", stored); err != nil {
+		return err
+	}
+	// 代理只影响建连，断掉客户端后下一次操作会自动重建
+	m.teardownClient()
 	return nil
 }
 

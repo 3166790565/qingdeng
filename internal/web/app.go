@@ -95,6 +95,7 @@ func (a *App) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/telegram/channels/{id}/delete", a.adminRequired(a.tgChannelDelete))
 	mux.HandleFunc("POST /admin/telegram/channels/{id}/toggle", a.adminRequired(a.tgChannelToggle))
 	mux.HandleFunc("POST /admin/telegram/settings", a.adminRequired(a.tgSettingsSave))
+	mux.HandleFunc("POST /admin/telegram/proxy", a.adminRequired(a.tgProxySave))
 	mux.HandleFunc("POST /admin/telegram/api/sync", a.adminAPIRequired(a.tgSync))
 }
 

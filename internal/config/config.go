@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config 是进程级的只读配置，启动时加载一次。
@@ -39,6 +40,10 @@ type Config struct {
 
 	TGAPIID   int
 	TGAPIHash string
+	// TGProxyURL 出站代理，形如 socks5://127.0.0.1:7890 或 http://127.0.0.1:7890。
+	// 留空直连。国内服务器连不上 Telegram 时必填。
+	TGProxyURL     string
+	TGProxyTimeout time.Duration
 
 	Host string
 	Port int
@@ -119,6 +124,12 @@ func Load(root string) (*Config, error) {
 
 	cfg.TGAPIID, _ = strconv.Atoi(strings.TrimSpace(os.Getenv("TG_API_ID")))
 	cfg.TGAPIHash = strings.TrimSpace(os.Getenv("TG_API_HASH"))
+	cfg.TGProxyURL = strings.TrimSpace(os.Getenv("TG_PROXY_URL"))
+	if seconds, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TG_PROXY_TIMEOUT"))); err == nil && seconds > 0 {
+		cfg.TGProxyTimeout = time.Duration(seconds) * time.Second
+	} else {
+		cfg.TGProxyTimeout = 30 * time.Second
+	}
 
 	cfg.Host = envOr("HOST", cfg.Host)
 	if port, err := strconv.Atoi(os.Getenv("PORT")); err == nil && port > 0 {
@@ -129,6 +140,12 @@ func Load(root string) (*Config, error) {
 		return nil, fmt.Errorf("创建数据目录 %s 失败：%w", cfg.DataDir, err)
 	}
 	return cfg, nil
+}
+
+// SetTGProxy 运行期修改代理（后台设置页用），下次建模客户端时生效。
+// 空串表示直连。
+func (c *Config) SetTGProxy(rawURL string) {
+	c.TGProxyURL = strings.TrimSpace(rawURL)
 }
 
 // TGReady 表示 Telegram 应用凭证是否已配置。

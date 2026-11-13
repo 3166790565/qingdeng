@@ -10,6 +10,8 @@
 ```bash
 mkdir -p /srv/qingdeng && cd /srv/qingdeng
 curl -O https://raw.githubusercontent.com/3166790565/qingdeng/main/docker-compose.prod.yml
+# 代理只监听 127.0.0.1 且无法改为 0.0.0.0 时，用这个：
+# curl -O https://raw.githubusercontent.com/3166790565/qingdeng/main/docker-compose.prod-host.yml
 curl -O https://raw.githubusercontent.com/3166790565/qingdeng/main/.env.example
 mv .env.example .env
 vi .env      # 必改 ADMIN_PASSWORD / SECRET_KEY / SITE_BASE_URL
@@ -31,6 +33,49 @@ docker run -d --name qingdeng --restart unless-stopped \
   -v /srv/qingdeng/data:/data \
   bxacc123/qingdeng:latest
 ```
+
+## 连不上 TG：配置代理
+
+国内服务器直连 Telegram 会超时，需要一条出口。两种填法，**后台页面优先**：
+
+1. 后台「TG 频道」页 → 出站代理 → 填地址 → 保存（立即生效，不用重启）
+2. `.env` 里 `TG_PROXY_URL=...`（重启生效）
+
+支持 `socks5://` 与 `http://`，带认证写 `socks5://user:pass@host:port`。
+后台存的值会覆盖 `.env`，所以填错时在页面上清空即可回到直连。
+
+### Docker 下的地址是最大的坑
+
+容器里的 `127.0.0.1` 指向容器自己，不是宿主机。你的代理跑在宿主机 `127.0.0.1:7890`，
+所以**不能直接填 `127.0.0.1:7890`**。三种正确写法：
+
+| 你的情况 | 填什么 |
+| --- | --- |
+| 代理在宿主机，用 `docker-compose.prod.yml` | `socks5://host.docker.internal:7890` |
+| 代理在另一个容器里 | `socks5://那个容器的名字:7890` |
+| 代理只监听 127.0.0.1 且改不了 | 改用 `docker-compose.prod-host.yml`（host 网络），才能填 `socks5://127.0.0.1:7890` |
+
+`docker-compose.prod.yml` 已经加了 `extra_hosts: host.docker.internal:host-gateway`，
+Linux 上也能解析这个名字；Docker Desktop 自带。
+
+还有一点：如果代理自己也是容器，它必须监听 `0.0.0.0` 而不是 `127.0.0.1`，
+否则宿主机的转发也进不去。
+
+验证代理是否通（不用等真实 TG 登录）：
+
+```bash
+# 在容器里测，地址与后台填的一致
+docker exec qingdeng /usr/local/bin/qingdeng -check-sqlite   # 先确认容器活着
+# 更直接的办法：后台 Telegram 页点「发送验证码」，失败信息会写明是哪一层不通
+```
+
+### host 网络方案
+
+```bash
+IMAGE=bxacc123/qingdeng:latest TG_PROXY_URL=socks5://127.0.0.1:7890   docker compose -f docker-compose.prod-host.yml up -d
+```
+
+代价是端口映射失效、直接占宿主机 8000，且与宿主其它进程共享网络命名空间。
 
 ## 前置：nginx + HTTPS
 

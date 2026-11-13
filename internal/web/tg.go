@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	tgmanager "qingdeng/internal/tg"
 )
 
 // tgContext 页面上下文。
@@ -37,6 +39,7 @@ func (a *App) tgContext(r *http.Request) map[string]any {
 		"Channels":     list,
 		"SyncInterval": interval,
 		"SyncBusy":     a.TG.SyncBusy(),
+		"ProxyURL":     a.TG.ProxyURL(),
 		"Jobs":         jobs,
 		"Flash":        r.URL.Query().Get("flash"),
 		"Kind":         r.URL.Query().Get("kind"),
@@ -141,6 +144,28 @@ func (a *App) tgChannelToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------- 自动同步设置
+
+func (a *App) tgProxySave(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	rawURL := strings.TrimSpace(r.FormValue("proxy_url"))
+	// 先校验格式，别把明显写错的地址存进库，否则下次建连才报错
+	if rawURL != "" {
+		cfg := tgmanager.ProxyConfig{URL: rawURL}
+		if err := cfg.Validate(); err != nil {
+			flashRedirect(w, r, "/admin/telegram", "代理地址有误："+err.Error(), false)
+			return
+		}
+	}
+	if err := a.TG.SetProxyURL(r.Context(), rawURL); err != nil {
+		flashRedirect(w, r, "/admin/telegram", "保存失败："+err.Error(), false)
+		return
+	}
+	if rawURL == "" {
+		flashRedirect(w, r, "/admin/telegram", "已改为直连", true)
+		return
+	}
+	flashRedirect(w, r, "/admin/telegram", "代理已保存："+rawURL, true)
+}
 
 func (a *App) tgSettingsSave(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()

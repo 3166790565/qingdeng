@@ -53,6 +53,8 @@ GOPROXY=https://goproxy.cn,direct go mod download
 | `SITE_BASE_URL` | `http://127.0.0.1:8000` | 写进书源与 API 返回 URL 的对外地址 |
 | `SITE_NAME` / `SITE_TAGLINE` | 青灯书斋 / 一盏灯，一本书 | 站名与副标题 |
 | `TG_API_ID` / `TG_API_HASH` | 空 | Telegram 频道的应用凭证 |
+| `TG_PROXY_URL` | 空 | TG 出站代理，`socks5://` 或 `http://`。国内服务器必填，后台页面可覆盖 |
+| `TG_PROXY_TIMEOUT` | 30 | 建连超时（秒） |
 | `NOVEL_DATA_DIR` / `NOVEL_DB_PATH` | `data/` | 数据目录与库文件位置 |
 | `NOVEL_ENV_FILE` | `.env` | 换一个配置文件路径。只能由系统环境变量指定 |
 | `HOST` / `PORT` | 127.0.0.1 / 8000 | 监听地址 |
@@ -172,6 +174,22 @@ go build -o bulkimport ./cmd/bulkimport
 > 登录的三步（发码 / 验码 / 云密码）共用同一个 client，`phone_code_hash` 存在内存里，
 > 有效期 5 分钟。
 
+### 出站代理
+
+国内服务器连不上 Telegram 时配 `TG_PROXY_URL`，或在后台「TG 频道」页填写
+（页面优先，保存后立即生效，不用重启）。
+
+```bash
+# 宿主机直跑
+TG_PROXY_URL=socks5://127.0.0.1:7890
+
+# Docker 部署：容器里的 127.0.0.1 是容器自己
+TG_PROXY_URL=socks5://host.docker.internal:7890
+```
+
+代理只监听 `127.0.0.1` 又改不了时，用 `docker-compose.prod-host.yml`（host 网络），
+这时才能填 `127.0.0.1:7890`。详见 [deploy/README.md](deploy/README.md)。
+
 ## 前台
 
 - 首页：书架网格（无封面时按书名生成稳定的渐变占位块）、最长篇幅榜
@@ -262,6 +280,9 @@ go test ./...
 
 - **编码探测**：原版用 `charset-normalizer` 做统计猜测；Go 版按 BOM → 严格 UTF-8 →
   GB18030 → Big5 的确定性顺序。对中文 txt 命中率相同，但少了统计模型的体积。
+- **TG 代理**：原版没有内置代理开关；Go 版支持 `socks5://` 与 `http://`（含认证），
+  可在后台页面热改。Telethon 依赖系统级 `HTTPS_PROXY` 的做法不适用。
+
 - **TG 会话**：原版把 StringSession 存进 `app_settings` 表；Go 版存成数据目录下的
   `tg.session` 文件。换库不再影响登录态，但把库拷到别的机器时要一起拷会话文件。
 - **上传文件名**：Windows 浏览器提交中文文件名时 multipart 头里可能是 GBK 字节，

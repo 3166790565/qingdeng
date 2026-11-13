@@ -105,6 +105,11 @@ store**。`store.Settings.ParseOptions` 才是从 `app_settings` 造解析选项
 改这块时注意：`client.Run` 退出后必须清掉 `m.client` / `m.api`，否则下次调用会拿到死
 client；所有登录态字段都在 `m.mu` 下读写。
 
+代理走 `internal/tg/proxy.go` 的 `ProxyConfig`，通过 `dcs.Plain{Dial: ...}` 注入
+`telegram.Options.Resolver`。支持 `socks5://`（x/net/proxy）与 `http://`（自写 CONNECT）。
+地址来源优先级：`app_settings.tg_proxy_url` > `TG_PROXY_URL` 环境变量；库里用 `-`
+表示"显式直连"，与"没设置"区分开。改代理会 `teardownClient()` 让下次操作重建。
+
 ### 部署形态
 
 `Dockerfile` 多阶段构建，`CGO_ENABLED=0` 也能用 FTS5（modernc 是纯 Go 实现）。

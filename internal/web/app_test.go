@@ -376,3 +376,44 @@ func firstLine(s string) string {
 	}
 	return s
 }
+
+// 代理设置页能保存合法地址、拒绝非法协议，并且清空后回到直连。
+func TestTGProxySetting(t *testing.T) {
+	app, _ := testApp(t, nil)
+
+	// 非法协议应被拒，且不写入
+	rec := do(t, app, "POST", "/admin/telegram/proxy", url.Values{"proxy_url": {"ftp://127.0.0.1:7890"}}, true)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("应重定向回页面，得到 %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "kind=err") {
+		t.Fatalf("非法协议应带错误提示：%s", loc)
+	}
+	if got := app.TG.ProxyURL(); got != "" {
+		t.Fatalf("非法地址不该写入，当前 %q", got)
+	}
+
+	// 合法 SOCKS5 地址应保存
+	rec = do(t, app, "POST", "/admin/telegram/proxy", url.Values{"proxy_url": {"socks5://127.0.0.1:7890"}}, true)
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "kind=ok") {
+		t.Fatalf("合法地址应保存成功：%s", loc)
+	}
+	if got := app.TG.ProxyURL(); got != "socks5://127.0.0.1:7890" {
+		t.Fatalf("代理地址未生效：%q", got)
+	}
+
+	// 页面应显示当前代理
+	rec = do(t, app, "GET", "/admin/telegram", nil, true)
+	if !strings.Contains(rec.Body.String(), "socks5://127.0.0.1:7890") {
+		t.Fatal("页面没显示当前代理")
+	}
+
+	// 清空回到直连
+	rec = do(t, app, "POST", "/admin/telegram/proxy", url.Values{"proxy_url": {""}}, true)
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "kind=ok") {
+		t.Fatalf("清空应成功：%s", loc)
+	}
+	if got := app.TG.ProxyURL(); got != "" {
+		t.Fatalf("清空后应直连，得到 %q", got)
+	}
+}

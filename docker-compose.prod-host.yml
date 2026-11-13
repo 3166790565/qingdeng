@@ -1,0 +1,39 @@
+# 备选方案：容器直接用宿主机网络栈。
+#
+# 只有一种情况需要它——你的代理（或其它服务）只监听在 127.0.0.1 上，
+# 既不能绑 0.0.0.0，也不想改代理配置。这时容器内写 127.0.0.1:7890 才能通。
+#
+# 代价：
+#   - ports 映射失效，站点直接占用宿主机的 8000 端口
+#   - 宿主机其它进程和它抢端口时没有隔离
+#
+# 用法：
+#   TG_PROXY_URL=socks5://127.0.0.1:7890 IMAGE=bxacc123/qingdeng:latest \
+#     docker compose -f docker-compose.prod-host.yml up -d
+name: qingdeng
+
+services:
+  web:
+    image: ${IMAGE:-bxacc123/qingdeng:latest}
+    container_name: qingdeng
+    restart: unless-stopped
+    network_mode: host
+
+    env_file:
+      - .env
+
+    environment:
+      NOVEL_DATA_DIR: /data
+      NOVEL_DB_PATH: /data/${DB_FILE:-novel.db}
+      TZ: Asia/Shanghai
+      HOST: 0.0.0.0
+      PORT: ${HOST_PORT:-8000}
+
+    volumes:
+      - ./data:/data
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
